@@ -1,255 +1,241 @@
--- Fixed Mining Turtle Script v1.3
--- Corrected vein mining and inventory sorting
+-- Advanced Mining Turtle v2.0 (1.20.1+)
+-- Universal fuel finder & smart ore scanner
 
 -- ===== CONFIGURATION =====
-local TARGET_ORE = "minecraft:iron_ore"
-local FUEL_SLOT = 16
-local SCAN_RANGE = 6
+local TARGET_ORE = "minecraft:iron_ore" -- Change to any ore ID
+local SCAN_RADIUS = 6                   -- How far to search (3D cube)
+local FUEL_ITEMS = {                    -- All possible fuel sources
+    "minecraft:coal",
+    "minecraft:coal_block",
+    "minecraft:charcoal",
+    "minecraft:lava_bucket",
+    "minecraft:blaze_rod"
+}
 
--- ===== MOVEMENT TRACKING (For going HOME) =====
-local pathLog = {}
-local visitedBlocks = {}
+-- ===== MOVEMENT TRACKING =====
+local pathHistory = {}
+local startOrientation = 0
 
-local function logMovement(direction)
-    table.insert(pathLog, 1, direction)
+local function logMove(cmd)
+    table.insert(pathHistory, 1, cmd)
 end
 
-local function moveHome()
-    print("Returning to start point...")
-    for _, move in ipairs(pathLog) do
-        if move == "forward" then turtle.back()
-        elseif move == "back" then turtle.forward()
-        elseif move == "up" then turtle.down()
-        elseif move == "down" then turtle.up()
-        elseif move == "turnLeft" then turtle.turnRight()
-        elseif move == "turnRight" then turtle.turnLeft()
+local function returnToStart()
+    print("Returning to start...")
+    for _, move in ipairs(pathHistory) do
+        if move == "F" then turtle.back()
+        elseif move == "B" then turtle.forward()
+        elseif move == "U" then turtle.down()
+        elseif move == "D" then turtle.up()
+        elseif move == "L" then turtle.turnRight()
+        elseif move == "R" then turtle.turnLeft()
         end
         sleep(0.1)
     end
-    pathLog = {}
-    visitedBlocks = {}
-    print("Return complete.")
+    -- Restore original facing
+    for i = 1, startOrientation do turtle.turnRight() end
+    pathHistory = {}
+    print("Successfully returned!")
 end
 
--- ===== BASIC MOVEMENT =====
-local function moveF()
-    if turtle.forward() then logMovement("forward"); return true end
-    return false
-end
-local function moveB()
-    if turtle.back() then logMovement("back"); return true end
-    return false
-end
-local function moveU()
-    if turtle.up() then logMovement("up"); return true end
-    return false
-end
-local function moveD()
-    if turtle.down() then logMovement("down"); return true end
-    return false
-end
-local function turnL()
-    turtle.turnLeft(); logMovement("turnLeft")
-end
-local function turnR()
-    turtle.turnRight(); logMovement("turnRight")
-end
-
--- ===== CORE FUNCTIONS =====
-local function checkFuel()
-    if turtle.getFuelLevel() < 50 then
-        turtle.select(FUEL_SLOT)
-        if turtle.refuel(1) then
-            print("Refueled. Fuel: " .. turtle.getFuelLevel())
-        else
-            print("WARNING: Low fuel in slot " .. FUEL_SLOT)
+-- ===== IMPROVED FUEL SYSTEM =====
+local function findAndRefuel()
+    local currentFuel = turtle.getFuelLevel()
+    if currentFuel > 500 then return true end
+    
+    print("Fuel low ("..currentFuel.."). Searching for fuel...")
+    
+    for slot = 1, 16 do
+        local item = turtle.getItemDetail(slot)
+        if item then
+            for _, fuelName in ipairs(FUEL_ITEMS) do
+                if item.name == fuelName then
+                    turtle.select(slot)
+                    local needed = math.ceil((1000 - currentFuel) / 80)
+                    local refuelAmount = math.min(needed, item.count)
+                    
+                    if turtle.refuel(refuelAmount) then
+                        print("Refueled with "..item.name.." from slot "..slot)
+                        print("Fuel now: "..turtle.getFuelLevel())
+                        return true
+                    end
+                end
+            end
         end
     end
-    return true
+    
+    print("CRITICAL: No fuel found in inventory!")
+    print("Please add: coal, charcoal, coal block, lava bucket or blaze rod")
+    return false
 end
 
--- FIXED: Recursive vein mining function
-local function mineIronVein()
-    -- Generate a unique key for current position
-    local x, y, z = 0, 0, 0 -- Simplified tracking
-    local posKey = x .. "," .. y .. "," .. z
+-- ===== 3D ORE SCANNER =====
+local function scanForOre(radius)
+    print("Starting 3D scan (radius: "..radius..")...")
     
-    if visitedBlocks[posKey] then return end
-    visitedBlocks[posKey] = true
+    -- Scan current position first (up/down)
+    local checks = {
+        {"Down", turtle.inspectDown}, {"Up", turtle.inspectUp},
+        {"North", turtle.inspect}
+    }
     
-    local function tryMine(digFunc, inspectFunc, moveInFunc, moveOutFunc)
+    for _, check in ipairs(checks) do
+        local success, data = check[2]()
+        if success and data.name == TARGET_ORE then
+            print("Found "..TARGET_ORE.." "..check[1].."!")
+            return check[1]
+        end
+    end
+    
+    -- Systematic 3D search pattern
+    for r = 1, radius do
+        print("Scanning layer "..r.."...")
+        
+        -- Search pattern: spiral + vertical
+        for dir = 1, 4 do
+            for step = 1, r * 2 do
+                if not turtle.forward() then
+                    if turtle.detect() then turtle.dig() end
+                    turtle.forward()
+                end
+                logMove("F")
+                
+                -- Check all directions at each position
+                local directions = {
+                    {"Front", turtle.inspect},
+                    {"Up", turtle.inspectUp},
+                    {"Down", turtle.inspectDown}
+                }
+                
+                for _, scan in ipairs(directions) do
+                    local success, data = scan[2]()
+                    if success and data.name == TARGET_ORE then
+                        print("Found "..TARGET_ORE.." "..scan[1].." at distance "..r)
+                        return scan[1]
+                    end
+                end
+            end
+            turtle.turnRight()
+            logMove("R")
+        end
+    end
+    
+    return nil
+end
+
+-- ===== VEIN MINING =====
+local minedBlocks = {}
+
+local function mineVeinAt(x, y, z)
+    local key = x..","..y..","..z
+    if minedBlocks[key] then return end
+    minedBlocks[key] = true
+    
+    local function checkDirection(dx, dy, dz, digFunc, inspectFunc, moveFunc, reverseFunc)
+        -- Simplified position check
         local success, data = inspectFunc()
         if success and data.name == TARGET_ORE then
             digFunc()
             sleep(0.2)
-            moveInFunc()
-            mineIronVein() -- Recursively mine from new position
-            moveOutFunc()
-            return true
+            moveFunc()
+            mineVeinAt(x+dx, y+dy, z+dz)
+            reverseFunc()
         end
-        return false
     end
     
-    -- Check and mine in all 6 directions
-    -- Up and Down
-    tryMine(turtle.digUp, turtle.inspectUp, turtle.up, turtle.down)
-    tryMine(turtle.digDown, turtle.inspectDown, turtle.down, turtle.up)
+    -- Check all 6 directions
+    checkDirection(0, 1, 0, turtle.digUp, turtle.inspectUp, turtle.up, turtle.down)
+    checkDirection(0, -1, 0, turtle.digDown, turtle.inspectDown, turtle.down, turtle.up)
+    checkDirection(0, 0, 1, turtle.dig, turtle.inspect, turtle.forward, turtle.back)
     
-    -- Four horizontal directions
-    for i = 1, 4 do
-        tryMine(turtle.dig, turtle.inspect, turtle.forward, turtle.back)
-        turtle.turnRight()
-    end
+    turtle.turnRight()
+    checkDirection(1, 0, 0, turtle.dig, turtle.inspect, turtle.forward, turtle.back)
+    turtle.turnRight();turtle.turnRight()
+    checkDirection(-1, 0, 0, turtle.dig, turtle.inspect, turtle.forward, turtle.back)
+    turtle.turnRight()
+    checkDirection(0, 0, -1, turtle.dig, turtle.inspect, turtle.forward, turtle.back)
+    turtle.turnRight()
 end
 
--- ===== IMPROVED TEST MODE =====
-local function runTest()
-    if not checkFuel() then return end
-    print("TEST: Searching for " .. TARGET_ORE .. " in all directions...")
+-- ===== MAIN TEST FUNCTION =====
+local function runAdvancedTest()
+    print("=== ADVANCED ORE SCANNER ===")
+    print("Target: "..TARGET_ORE)
+    print("Fuel: "..turtle.getFuelLevel())
     
-    local startX, startY, startZ = 0, 0, 0
-    local foundOre = false
-    
-    -- First, check block directly below (common ore location)
-    if turtle.detectDown() then
-        local success, data = turtle.inspectDown()
-        if success and data.name == TARGET_ORE then
-            print("Found iron ore below! Mining...")
-            turtle.digDown()
-            moveD()
-            mineIronVein()
-            moveU()
-            foundOre = true
-        end
+    if not findAndRefuel() then
+        print("Aborting: no fuel available")
+        return
     end
     
-    -- Scan forward/around if nothing below
-    if not foundOre then
-        for scan = 1, SCAN_RANGE do
-            -- Check forward
-            if turtle.detect() then
-                local success, data = turtle.inspect()
-                if success and data.name == TARGET_ORE then
-                    print("Found iron ore ahead! Mining vein...")
-                    turtle.dig()
-                    moveF()
-                    mineIronVein()
-                    foundOre = true
-                    break
-                end
-            end
-            
-            -- Check sides by turning
-            for sideCheck = 1, 3 do
-                turnR()
-                if turtle.detect() then
-                    local success, data = turtle.inspect()
-                    if success and data.name == TARGET_ORE then
-                        print("Found iron ore to the side!")
-                        turtle.dig()
-                        moveF()
-                        mineIronVein()
-                        foundOre = true
-                        break
-                    end
-                end
-            end
-            if foundOre then break end
-            
-            -- Check up/down while moving
-            if turtle.detectUp() then
-                local success, data = turtle.inspectUp()
-                if success and data.name == TARGET_ORE then
-                    print("Found iron ore above!")
-                    turtle.digUp()
-                    moveU()
-                    mineIronVein()
-                    moveD()
-                    foundOre = true
-                    break
-                end
-            end
-            
-            -- Move forward to next scan position
-            if not moveF() then break end
-        end
+    startOrientation = 0
+    minedBlocks = {}
+    
+    -- Phase 1: Initial scan around start
+    local oreLocation = scanForOre(SCAN_RADIUS)
+    
+    if not oreLocation then
+        print("No "..TARGET_ORE.." found within "..SCAN_RADIUS.." blocks")
+        returnToStart()
+        return
     end
     
-    -- FIXED: Inventory cleaning - KEEP coal and ores
-    print("Cleaning inventory (keeping ores and coal)...")
+    -- Phase 2: Mine the vein
+    print("Mining vein...")
+    mineVeinAt(0, 0, 0)
+    
+    -- Phase 3: Smart inventory cleanup
+    print("Cleaning inventory...")
+    local keptItems = 0
     for slot = 1, 16 do
         local item = turtle.getItemDetail(slot)
         if item then
-            -- Throw away only real trash (cobblestone, dirt, gravel)
-            if item.name:find("cobblestone") or item.name:find("dirt") or item.name:find("gravel") then
+            -- Keep ALL ores and potential fuel
+            if item.name:find("ore") or item.name:find("coal") or item.name:find("raw_") then
+                keptItems = keptItems + 1
+            else
                 turtle.select(slot)
                 turtle.dropDown()
             end
         end
     end
+    print("Kept "..keptItems.." valuable items")
     
-    -- Return to start
-    moveHome()
-    
-    if foundOre then
-        print("Test successful! Iron ore mined and stored.")
-    else
-        print("No " .. TARGET_ORE .. " found within range.")
-    end
+    -- Phase 4: Return
+    returnToStart()
+    print("Mining operation complete!")
 end
 
--- ===== QUICK MANUAL CONTROLS =====
-local function quickCommand(cmd)
-    if cmd == "dig" then
-        turtle.dig()
-    elseif cmd == "digup" then
-        turtle.digUp()
-    elseif cmd == "digdown" then
-        turtle.digDown()
-    elseif cmd == "scan" then
-        print("Scanning nearby...")
-        local dirs = {"front", "right", "back", "left", "up", "down"}
-        local checks = {turtle.inspect, function() turnR(); local s,d=turtle.inspect(); turnL(); return s,d end, 
-                       function() turnR();turnR(); local s,d=turtle.inspect(); turnL();turnL(); return s,d end,
-                       function() turnL(); local s,d=turtle.inspect(); turnR(); return s,d end,
-                       turtle.inspectUp, turtle.inspectDown}
-        for i=1,6 do
-            local success, data = checks[i]()
-            if success then
-                print(dirs[i] .. ": " .. data.name)
-            end
-        end
-    end
-end
-
--- ===== MAIN =====
-local args = { ... }
-
-if not turtle then
-    print("ERROR: This script requires a Mining Turtle!")
-    return
-end
+-- ===== COMMAND HANDLER =====
+local args = {...}
 
 if args[1] == "test" then
-    runTest()
-elseif args[1] == "move" and args[2] then
-    local dir = args[2]
-    if dir == "f" then moveF()
-    elseif dir == "b" then moveB()
-    elseif dir == "u" then moveU()
-    elseif dir == "d" then moveD()
-    elseif dir == "l" then turnL()
-    elseif dir == "r" then turnR()
+    if args[2] then
+        TARGET_ORE = args[2]
+        print("New target ore: "..TARGET_ORE)
     end
-elseif args[1] == "home" then
-    moveHome()
-elseif args[1] == "cmd" and args[2] then
-    quickCommand(args[2])
+    runAdvancedTest()
+    
+elseif args[1] == "scan" then
+    local radius = tonumber(args[2]) or 3
+    print("Quick scan mode...")
+    local found = scanForOre(radius)
+    if found then
+        print("Located: "..found)
+    else
+        print("Nothing found")
+    end
+    returnToStart()
+    
+elseif args[1] == "fuel" then
+    findAndRefuel()
+    
 else
-    print("Mining Turtle Controller")
+    print("=== Mining Turtle OS ===")
     print("Commands:")
-    print("  test          - Find/mine IRON ORE, return home")
-    print("  move <f/b/u/d/l/r> - Quick move (forward/back/up/down/left/right)")
-    print("  home          - Return to start")
-    print("  cmd <dig/digup/digdown/scan> - Quick actions")
+    print("  test [ore_id]  - Find & mine ore (default: iron)")
+    print("  scan [radius]  - Scan area without mining")
+    print("  fuel           - Refuel from inventory")
+    print("  home           - Return to start position")
+    print("\nExample: 'test minecraft:diamond_ore'")
 end
