@@ -1,40 +1,64 @@
--- Mining Turtle Script with Mod Support
--- Colin's Survival Script v1.2 (English only)
+-- Advanced Mining Turtle Script with Iron Ore Test Mode
+-- Based on vein mining principles and return-to-home function
 
--- === CONFIGURATION ===
-local oreIds = {
-    -- Vanilla ores
-    "minecraft:coal_ore",
-    "minecraft:iron_ore",
-    "minecraft:gold_ore",
-    "minecraft:diamond_ore",
-    "minecraft:emerald_ore",
-    "minecraft:redstone_ore",
-    "minecraft:lapis_ore",
-    "minecraft:copper_ore",
-    "minecraft:nether_quartz_ore",
-    "minecraft:ancient_debris",
-    -- Add mod ores below
-    -- "thermal:tin_ore",
-    -- "immersiveengineering:ore_aluminum",
-    -- "mekanism:osmium_ore"
-}
+-- ===== CONFIGURATION =====
+local TARGET_ORE = "minecraft:iron_ore" -- Ore to find in test mode
+local FUEL_SLOT = 16                    -- Slot for coal/charcoal
+local SCAN_RANGE = 5                    -- How far to look for ore in test mode
 
-local MAIN_TUNNEL_LENGTH = 16
-local TUNNEL_COUNT = 4
-local FUEL_SLOT = 16
+-- ===== MOVEMENT TRACKING (For going HOME) =====
+local pathLog = {} -- Tracks every move to reverse it later
 
--- === SYSTEM FUNCTIONS ===
-local function isTurtle()
-    return turtle ~= nil
+local function logMovement(direction)
+    table.insert(pathLog, 1, direction) -- Add to start to reverse later
 end
 
+local function moveHome()
+    print("Returning to start point...")
+    for _, move in ipairs(pathLog) do
+        if move == "forward" then turtle.back()
+        elseif move == "back" then turtle.forward()
+        elseif move == "up" then turtle.down()
+        elseif move == "down" then turtle.up()
+        elseif move == "turnLeft" then turtle.turnRight()
+        elseif move == "turnRight" then turtle.turnLeft()
+        end
+        sleep(0.1)
+    end
+    pathLog = {} -- Clear log after returning
+    print("Return complete.")
+end
+
+-- ===== BASIC MOVEMENT WITH TRACKING =====
+local function moveForward()
+    if turtle.forward() then logMovement("forward"); return true end
+    return false
+end
+local function moveBack()
+    if turtle.back() then logMovement("back"); return true end
+    return false
+end
+local function moveUp()
+    if turtle.up() then logMovement("up"); return true end
+    return false
+end
+local function moveDown()
+    if turtle.down() then logMovement("down"); return true end
+    return false
+end
+local function turnL()
+    turtle.turnLeft(); logMovement("turnLeft")
+end
+local function turnR()
+    turtle.turnRight(); logMovement("turnRight")
+end
+
+-- ===== CORE MINING FUNCTIONS =====
 local function checkFuel()
-    if turtle.getFuelLevel() < MAIN_TUNNEL_LENGTH * TUNNEL_COUNT * 3 then
-        print("Refueling...")
+    if turtle.getFuelLevel() < 100 then
         turtle.select(FUEL_SLOT)
         if turtle.refuel(1) then
-            print("Fuel: " .. turtle.getFuelLevel())
+            print("Refueled. Fuel: " .. turtle.getFuelLevel())
         else
             print("ERROR: No fuel in slot " .. FUEL_SLOT)
             return false
@@ -43,202 +67,143 @@ local function checkFuel()
     return true
 end
 
-local function isOre(blockName)
-    for _, id in ipairs(oreIds) do
-        if blockName == id then
+-- Advanced vein mining function for IRON ORE
+local function mineIronVein()
+    local function isTargetOre(blockName)
+        return blockName == TARGET_ORE
+    end
+
+    local function tryMine(digFunc, inspectFunc, moveInFunc, moveOutFunc)
+        local success, data = inspectFunc()
+        if success and isTargetOre(data.name) then
+            digFunc()
+            sleep(0.3)
+            moveInFunc()
+            mineIronVein() -- Recurse to mine connected ores
+            moveOutFunc()
             return true
         end
+        return false
     end
-    return false
-end
 
--- === MINING FUNCTIONS ===
-local function mineVein()
-    local success, data = turtle.inspect()
-    if not success then return end
-    
-    if isOre(data.name) then
-        turtle.dig()
-        sleep(0.3)
-        
-        for i = 1, 4 do
-            turtle.turnLeft()
-            local sideSuccess, sideData = turtle.inspect()
-            if sideSuccess and isOre(sideData.name) then
-                mineVein()
-            end
+    -- Check and mine in all 6 directions
+    if tryMine(turtle.digUp, turtle.inspectUp, turtle.up, turtle.down) then return end
+    if tryMine(turtle.digDown, turtle.inspectDown, turtle.down, turtle.up) then return end
+
+    -- Check 4 horizontal directions by turning
+    for i = 1, 4 do
+        if tryMine(turtle.dig, turtle.inspect, turtle.forward, turtle.back) then
+            -- Found ore in front, mine the vein from there
         end
         turtle.turnRight()
-        
-        if turtle.detectUp() then
-            local upSuccess, upData = turtle.inspectUp()
-            if upSuccess and isOre(upData.name) then
-                turtle.digUp()
-                turtle.up()
-                mineVein()
-                turtle.down()
-            end
-        end
-        
-        if turtle.detectDown() then
-            local downSuccess, downData = turtle.inspectDown()
-            if downSuccess and isOre(downData.name) then
-                turtle.digDown()
-                turtle.down()
-                mineVein()
-                turtle.up()
-            end
-        end
     end
 end
 
-local function excavateTunnel(length)
-    for i = 1, length do
-        if not checkFuel() then return false end
-        
-        if turtle.detect() then
-            local success, data = turtle.inspect()
-            if success and isOre(data.name) then
-                print("Found: " .. data.name)
-                mineVein()
-            else
-                turtle.dig()
-            end
-        end
-        
-        if turtle.detectUp() then
-            local success, data = turtle.inspectUp()
-            if success and isOre(data.name) then
-                print("Found above: " .. data.name)
-                turtle.digUp()
-            end
-        end
-        
-        if turtle.detectDown() then
-            local success, data = turtle.inspectDown()
-            if success and isOre(data.name) then
-                print("Found below: " .. data.name)
-                turtle.digDown()
-            end
-        end
-        
-        for s = 1, 16 do
-            local item = turtle.getItemDetail(s)
-            if item and not isOre(item.name) and item.name:find("ore") == nil then
-                turtle.select(s)
-                turtle.dropDown()
-            end
-        end
-        
-        turtle.forward()
-        sleep(0.2)
-    end
-    return true
-end
+-- ===== TEST MODE: FIND AND MINE IRON =====
+local function runTest()
+    if not checkFuel() then return end
+    print("TEST MODE: Searching for " .. TARGET_ORE .. "...")
 
-local function mainMiningLoop()
-    print("=== MINING TURTLE SYSTEM ===")
-    print("Fuel: " .. turtle.getFuelLevel())
-    print("Tracking: " .. #oreIds .. " ore types")
-    print("Press Ctrl+T to stop")
-    print("==========================")
-    
-    for tunnel = 1, TUNNEL_COUNT do
-        print("Tunnel #" .. tunnel .. "...")
-        
-        if not excavateTunnel(MAIN_TUNNEL_LENGTH) then
-            print("Stopping: low fuel")
-            return
+    local foundOre = false
+    -- Scan nearby blocks for iron ore
+    for check = 1, SCAN_RANGE do
+        -- Check in front first
+        local success, data = turtle.inspect()
+        if success and data.name == TARGET_ORE then
+            print("Found iron ore in front! Mining vein...")
+            mineIronVein()
+            foundOre = true
+            break
         end
-        
-        if tunnel < TUNNEL_COUNT then
+
+        -- Check other sides by turning
+        for side = 1, 3 do
             turtle.turnRight()
-            turtle.forward()
-            turtle.forward()
-            turtle.turnRight()
+            local sideSuccess, sideData = turtle.inspect()
+            if sideSuccess and sideData.name == TARGET_ORE then
+                print("Found iron ore to the side! Turning to mine...")
+                turtle.turnLeft() -- Face the ore
+                mineIronVein()
+                foundOre = true
+                break
+            end
+        end
+        if foundOre then break end
+
+        -- Move forward and check up/down
+        if not moveForward() then break end
+
+        local upSuccess, upData = turtle.inspectUp()
+        if upSuccess and upData.name == TARGET_ORE then
+            print("Found iron ore above! Mining...")
+            turtle.digUp(); turtle.up(); mineIronVein(); turtle.down()
+            foundOre = true
+            break
+        end
+
+        local downSuccess, downData = turtle.inspectDown()
+        if downSuccess and downData.name == TARGET_ORE then
+            print("Found iron ore below! Mining...")
+            turtle.digDown(); turtle.down(); mineIronVein(); turtle.up()
+            foundOre = true
+            break
         end
     end
-    
-    print("Returning to base...")
-    turtle.turnLeft()
-    turtle.turnLeft()
-    for i = 1, TUNNEL_COUNT * 2 do turtle.forward() end
-    turtle.turnLeft()
-    turtle.turnLeft()
-    
-    print("Unloading resources...")
+
+    -- Clean inventory in test mode (keep only ores)
     for s = 1, 16 do
-        turtle.select(s)
-        turtle.drop()
-    end
-    
-    print("Mining complete. Resources in chest.")
-end
-
--- === TEST COMMAND ===
-local function executeTest()
-    print("[TEST] Test mode activated")
-    print("[TEST] Moving forward 10 blocks...")
-    
-    for i = 1, 10 do
-        if turtle.detect() then turtle.dig() end
-        turtle.forward()
-        sleep(0.5)
-    end
-    
-    print("[TEST] Waiting 60 seconds...")
-    for sec = 1, 60 do
-        os.sleep(1)
-        if sec % 10 == 0 then
-            print("[TEST] " .. sec .. " seconds passed")
+        local item = turtle.getItemDetail(s)
+        if item and not item.name:find("ore") then
+            turtle.select(s)
+            turtle.dropDown()
         end
     end
-    
-    print("[TEST] Returning...")
-    turtle.turnLeft()
-    turtle.turnLeft()
-    for i = 1, 10 do
-        turtle.forward()
-        sleep(0.3)
+
+    if not foundOre then
+        print("No " .. TARGET_ORE .. " found in scanning range.")
     end
-    turtle.turnLeft()
-    turtle.turnLeft()
-    
-    print("[TEST] Test completed successfully")
-    return true
+
+    -- ALWAYS return home after test
+    moveHome()
+    print("Test mode finished.")
 end
 
--- === MAIN PROGRAM ===
+-- ===== MANUAL MOVEMENT CONTROLS =====
+local function manualMove(direction)
+    if not checkFuel() then return end
+    local moved = false
+
+    if direction == "forward" then moved = moveForward()
+    elseif direction == "back" then moved = moveBack()
+    elseif direction == "up" then moved = moveUp()
+    elseif direction == "down" then moved = moveDown()
+    elseif direction == "left" then turnL(); moved = true
+    elseif direction == "right" then turnR(); moved = true
+    else print("Unknown direction. Use: forward, back, up, down, left, right")
+    end
+
+    if moved then
+        print("Moved " .. direction .. ". Position logged.")
+    else
+        print("Failed to move " .. direction .. ". Blocked or no fuel.")
+    end
+end
+
+-- ===== MAIN PROGRAM =====
 local args = { ... }
 
-if not isTurtle() then
-    print("ERROR: This script requires a Mining Turtle!")
-    print("1. Craft: Mining Turtle")
-    print("2. Place fuel in slot " .. FUEL_SLOT)
-    print("3. Run: mine")
-    return
-end
-
 if args[1] == "test" then
-    if checkFuel() then
-        executeTest()
-    else
-        print("ERROR: Not enough fuel for test")
-    end
-elseif args[1] == "addore" and args[2] then
-    table.insert(oreIds, args[2])
-    print("Added ore: " .. args[2])
-    print("Total ores: " .. #oreIds)
-elseif args[1] == "list" then
-    print("Loaded ore IDs:")
-    for i, ore in ipairs(oreIds) do
-        print(i .. ". " .. ore)
-    end
+    runTest()
+elseif args[1] == "move" and args[2] then
+    manualMove(args[2])
+elseif args[1] == "home" then
+    moveHome()
+elseif args[1] == "fuel" then
+    print("Current fuel: " .. turtle.getFuelLevel())
 else
-    if checkFuel() then
-        mainMiningLoop()
-    else
-        print("ERROR: Not enough fuel")
-        print("Place fuel in slot " .. FUEL_SLOT)
-    end
+    print("Usage:")
+    print("  mine test           - Find/mine iron ore, then return")
+    print("  mine move <dir>     - Move (forward|back|up|down|left|right)")
+    print("  mine home           - Return to start position")
+    print("  mine fuel           - Check fuel level")
 end
