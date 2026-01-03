@@ -1,9 +1,9 @@
--- Скрипт для майнинга черепашкой с поддержкой модов
--- Colin's Survival Script v1.1 (Исправлено)
+-- Mining Turtle Script with Mod Support
+-- Colin's Survival Script v1.2 (English only)
 
--- === КОНФИГУРАЦИЯ ===
+-- === CONFIGURATION ===
 local oreIds = {
-    -- Ванильные руды
+    -- Vanilla ores
     "minecraft:coal_ore",
     "minecraft:iron_ore",
     "minecraft:gold_ore",
@@ -14,31 +14,29 @@ local oreIds = {
     "minecraft:copper_ore",
     "minecraft:nether_quartz_ore",
     "minecraft:ancient_debris",
-    -- Примеры модовых руд (добавьте свои!)
+    -- Add mod ores below
     -- "thermal:tin_ore",
     -- "immersiveengineering:ore_aluminum",
-    -- "mekanism:osmium_ore",
-    -- "create:zinc_ore",
-    -- "tconstruct:cobalt_ore"
+    -- "mekanism:osmium_ore"
 }
 
 local MAIN_TUNNEL_LENGTH = 16
 local TUNNEL_COUNT = 4
 local FUEL_SLOT = 16
 
--- === СИСТЕМНЫЕ ФУНКЦИИ ===
+-- === SYSTEM FUNCTIONS ===
 local function isTurtle()
     return turtle ~= nil
 end
 
 local function checkFuel()
     if turtle.getFuelLevel() < MAIN_TUNNEL_LENGTH * TUNNEL_COUNT * 3 then
-        print("Заправка...")
+        print("Refueling...")
         turtle.select(FUEL_SLOT)
         if turtle.refuel(1) then
-            print("Заправлено. Топлива: " .. turtle.getFuelLevel())
+            print("Fuel: " .. turtle.getFuelLevel())
         else
-            print("ОШИБКА: Нет топлива в слоте " .. FUEL_SLOT)
+            print("ERROR: No fuel in slot " .. FUEL_SLOT)
             return false
         end
     end
@@ -54,7 +52,7 @@ local function isOre(blockName)
     return false
 end
 
--- === ОСНОВНЫЕ ФУНКЦИИ МАЙНИНГА ===
+-- === MINING FUNCTIONS ===
 local function mineVein()
     local success, data = turtle.inspect()
     if not success then return end
@@ -63,7 +61,6 @@ local function mineVein()
         turtle.dig()
         sleep(0.3)
         
-        -- Рекурсивная проверка всех 6 сторон
         for i = 1, 4 do
             turtle.turnLeft()
             local sideSuccess, sideData = turtle.inspect()
@@ -73,7 +70,6 @@ local function mineVein()
         end
         turtle.turnRight()
         
-        -- Проверка сверху
         if turtle.detectUp() then
             local upSuccess, upData = turtle.inspectUp()
             if upSuccess and isOre(upData.name) then
@@ -84,7 +80,6 @@ local function mineVein()
             end
         end
         
-        -- Проверка снизу
         if turtle.detectDown() then
             local downSuccess, downData = turtle.inspectDown()
             if downSuccess and isOre(downData.name) then
@@ -101,36 +96,32 @@ local function excavateTunnel(length)
     for i = 1, length do
         if not checkFuel() then return false end
         
-        -- Добыча впереди
         if turtle.detect() then
             local success, data = turtle.inspect()
             if success and isOre(data.name) then
-                print("Найдена руда: " .. data.name)
+                print("Found: " .. data.name)
                 mineVein()
             else
                 turtle.dig()
             end
         end
         
-        -- Добыча сверху
         if turtle.detectUp() then
             local success, data = turtle.inspectUp()
             if success and isOre(data.name) then
-                print("Найдена руда сверху: " .. data.name)
+                print("Found above: " .. data.name)
                 turtle.digUp()
             end
         end
         
-        -- Добыча снизу
         if turtle.detectDown() then
             local success, data = turtle.inspectDown()
             if success and isOre(data.name) then
-                print("Найдена руда снизу: " .. data.name)
+                print("Found below: " .. data.name)
                 turtle.digDown()
             end
         end
         
-        -- Сортировка лута
         for s = 1, 16 do
             local item = turtle.getItemDetail(s)
             if item and not isOre(item.name) and item.name:find("ore") == nil then
@@ -146,17 +137,17 @@ local function excavateTunnel(length)
 end
 
 local function mainMiningLoop()
-    print("=== СИСТЕМА МАЙНИНГА ЧЕРЕПАШКИ ===")
-    print("Топливо: " .. turtle.getFuelLevel())
-    print("Ищем руды: " .. #oreIds .. " типов")
-    print("Нажмите Ctrl+T для остановки")
-    print("================================")
+    print("=== MINING TURTLE SYSTEM ===")
+    print("Fuel: " .. turtle.getFuelLevel())
+    print("Tracking: " .. #oreIds .. " ore types")
+    print("Press Ctrl+T to stop")
+    print("==========================")
     
     for tunnel = 1, TUNNEL_COUNT do
-        print("Шахта #" .. tunnel .. "...")
+        print("Tunnel #" .. tunnel .. "...")
         
         if not excavateTunnel(MAIN_TUNNEL_LENGTH) then
-            print("Остановка: нет топлива")
+            print("Stopping: low fuel")
             return
         end
         
@@ -168,28 +159,26 @@ local function mainMiningLoop()
         end
     end
     
-    -- Возврат домой
-    print("Возврат на базу...")
+    print("Returning to base...")
     turtle.turnLeft()
     turtle.turnLeft()
     for i = 1, TUNNEL_COUNT * 2 do turtle.forward() end
     turtle.turnLeft()
     turtle.turnLeft()
     
-    -- Выгрузка ресурсов
-    print("Выгрузка ресурсов...")
+    print("Unloading resources...")
     for s = 1, 16 do
         turtle.select(s)
         turtle.drop()
     end
     
-    print("Майнинг завершен. Ресурсы в сундуке.")
+    print("Mining complete. Resources in chest.")
 end
 
--- === КОМАНДА TEST ===
+-- === TEST COMMAND ===
 local function executeTest()
-    print("[TEST] Активация тестового режима")
-    print("[TEST] Выезд на 10 блоков вперед...")
+    print("[TEST] Test mode activated")
+    print("[TEST] Moving forward 10 blocks...")
     
     for i = 1, 10 do
         if turtle.detect() then turtle.dig() end
@@ -197,15 +186,15 @@ local function executeTest()
         sleep(0.5)
     end
     
-    print("[TEST] Ожидание 60 секунд...")
+    print("[TEST] Waiting 60 seconds...")
     for sec = 1, 60 do
         os.sleep(1)
         if sec % 10 == 0 then
-            print("[TEST] Прошло " .. sec .. " сек.")
+            print("[TEST] " .. sec .. " seconds passed")
         end
     end
     
-    print("[TEST] Возврат...")
+    print("[TEST] Returning...")
     turtle.turnLeft()
     turtle.turnLeft()
     for i = 1, 10 do
@@ -215,46 +204,41 @@ local function executeTest()
     turtle.turnLeft()
     turtle.turnLeft()
     
-    print("[TEST] Тест завершен успешно")
+    print("[TEST] Test completed successfully")
     return true
 end
 
--- === ГЛАВНАЯ ПРОГРАММА ===
+-- === MAIN PROGRAM ===
 local args = { ... }
 
--- Проверка типа устройства
 if not isTurtle() then
-    print("ОШИБКА: Этот скрипт работает только на Mining Turtle!")
-    print("1. Соберите черепашку: craft Mining Turtle")
-    print("2. Поместите в слот " .. FUEL_SLOT .. " уголь/лаву")
-    print("3. Запустите: mine")
+    print("ERROR: This script requires a Mining Turtle!")
+    print("1. Craft: Mining Turtle")
+    print("2. Place fuel in slot " .. FUEL_SLOT)
+    print("3. Run: mine")
     return
 end
 
--- Обработка команд
 if args[1] == "test" then
     if checkFuel() then
         executeTest()
     else
-        print("ОШИБКА: Недостаточно топлива для теста")
+        print("ERROR: Not enough fuel for test")
     end
 elseif args[1] == "addore" and args[2] then
-    -- Добавление новой руды
     table.insert(oreIds, args[2])
-    print("Добавлена руда: " .. args[2])
-    print("Всего руд в списке: " .. #oreIds)
+    print("Added ore: " .. args[2])
+    print("Total ores: " .. #oreIds)
 elseif args[1] == "list" then
-    -- Список всех руд
-    print("Загруженные ID руд:")
+    print("Loaded ore IDs:")
     for i, ore in ipairs(oreIds) do
         print(i .. ". " .. ore)
     end
 else
-    -- Основной режим майнинга
     if checkFuel() then
         mainMiningLoop()
     else
-        print("ОШИБКА: Недостаточно топлива")
-        print("Поместите топливо в слот " .. FUEL_SLOT)
+        print("ERROR: Not enough fuel")
+        print("Place fuel in slot " .. FUEL_SLOT)
     end
 end
